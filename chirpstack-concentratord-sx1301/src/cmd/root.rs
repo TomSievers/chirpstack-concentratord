@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 use std::thread;
+use crate::handler::timersync::START_TIME;
+use crate::handler::timersync::USE_GPS_TIME;
 
 use libconcentratord::signals;
 use libconcentratord::signals::Signal;
@@ -23,6 +26,9 @@ pub fn run(
 
     // reset concentrator
     reset::reset().expect("concentrator reset failed");
+    {
+        *START_TIME.lock().unwrap() = SystemTime::now()
+    }
 
     // setup concentrator
     concentrator::set_spidev_path(&config)?;
@@ -124,45 +130,53 @@ pub fn run(
         }
     }));
 
-    if config.gateway.model_config.gps_tty_path.is_some() {
-        // gps thread
-        threads.push(thread::spawn({
-            let gps_tty_path = config
-                .gateway
-                .model_config
-                .gps_tty_path
-                .as_ref()
-                .unwrap()
-                .clone();
-            let stop_receive = signal_pool.new_receiver();
+    {
+        let mut use_gps_time = USE_GPS_TIME.lock().unwrap();
 
-            move || {
-                handler::gps::gps_loop(&gps_tty_path, stop_receive);
-            }
-        }));
-
-        // gps validate thread
-        threads.push(thread::spawn({
-            let stop_receive = signal_pool.new_receiver();
-
-            move || {
-                handler::gps::gps_validate_loop(stop_receive);
-            }
-        }));
-
-        // beacon thread
-        if config.gateway.beacon.frequencies.len() != 0 {
+        if config.gateway.model_config.gps_tty_path.is_some() {
+            // gps thread
+            *use_gps_time = true;
             threads.push(thread::spawn({
-                let beacon_config = config.gateway.beacon.clone();
-                let queue = Arc::clone(&queue);
+                let gps_tty_path = config
+                    .gateway
+                    .model_config
+                    .gps_tty_path
+                    .as_ref()
+                    .unwrap()
+                    .clone();
                 let stop_receive = signal_pool.new_receiver();
 
                 move || {
-                    handler::beacon::beacon_loop(&beacon_config, queue, stop_receive);
+                    handler::gps::gps_loop(&gps_tty_path, stop_receive);
                 }
             }));
+
+            // gps validate thread
+            threads.push(thread::spawn({
+                let stop_receive = signal_pool.new_receiver();
+
+                move || {
+                    handler::gps::gps_validate_loop(stop_receive);
+                }
+            }));
+
+            // beacon thread
+            if config.gateway.beacon.frequencies.len() != 0 {
+                threads.push(thread::spawn({
+                    let beacon_config = config.gateway.beacon.clone();
+                    let queue = Arc::clone(&queue);
+                    let stop_receive = signal_pool.new_receiver();
+
+                    move || {
+                        handler::beacon::beacon_loop(&beacon_config, queue, stop_receive);
+                    }
+                }));
+            }
+        } else {
+            *use_gps_time = false;
         }
     }
+    
 
     let stop_signal = stop_receive.recv().unwrap();
     signal_pool.send_signal(stop_signal.clone());

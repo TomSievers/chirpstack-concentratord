@@ -12,6 +12,9 @@ lazy_static! {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
     );
+    pub static ref USE_GPS_TIME: Mutex<bool> = Mutex::new(true);
+    pub static ref START_TIME: Mutex<SystemTime> = Mutex::new(SystemTime::now());
+    pub static ref LAST_COUNTER: Mutex<u32> = Mutex::new(0);
 }
 
 pub fn timesync_loop(stop_receive: Receiver<Signal>) {
@@ -78,6 +81,16 @@ fn timesync() {
 
     *prev_unix_time = unix_time;
     *prev_concentrator_count = concentrator_count;
+
+    let mut counter = LAST_COUNTER.lock().unwrap();
+    let mut time = START_TIME.lock().unwrap();
+
+    if *counter > concentrator_count
+    {
+        let time_passed = Duration::from_micros(u32::MAX as u64 + concentrator_count as u64);
+        *time += time_passed;
+    }
+    *counter = concentrator_count;
 
     debug!("Current concentrator count_us: {}", concentrator_count);
     debug!("Concentrator drift, drift_us: {}", drift);
