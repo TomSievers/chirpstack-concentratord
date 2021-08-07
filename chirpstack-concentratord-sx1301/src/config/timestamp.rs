@@ -5,6 +5,7 @@ use serde::de::{self, Visitor};
 use std::fmt;
 use std::result::Result;
 
+#[derive(Copy, Clone)]
 pub enum TimeStampMethod {
     Systemtime,
     GPS,
@@ -61,11 +62,13 @@ impl Serialize for TimeStampMethod {
     }
 }
 
+#[derive(Copy, Clone)]
 enum Operation {
     Add,
     Subtract
 }
 
+#[derive(Copy, Clone)]
 pub struct TimeZone {
     offset : Duration,
     operation : Operation,

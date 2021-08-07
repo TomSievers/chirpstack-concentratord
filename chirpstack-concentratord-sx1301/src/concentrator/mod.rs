@@ -1,5 +1,7 @@
 use libloragw_sx1301::{hal, spi};
 
+pub mod timestamp;
+
 use super::config::{helpers, Configuration};
 
 pub fn set_spidev_path(config: &Configuration) -> Result<(), String> {
@@ -155,6 +157,7 @@ pub fn rxif_setconf(config: &Configuration) -> Result<(), String> {
 pub fn start(_config: &Configuration) -> Result<(), String> {
     info!("Starting the concentrator");
     hal::start()?;
+    timestamp::start(_config);
 
     return Ok(());
 }

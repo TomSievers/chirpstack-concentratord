@@ -1,11 +1,9 @@
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::Duration;
 
 use libconcentratord::jitqueue;
 use libloragw_sx1301::hal;
 use uuid::Uuid;
-use crate::handler::timersync::USE_GPS_TIME;
-use crate::handler::timersync::START_TIME;
-use crate::handler::timersync::LAST_COUNTER;
+use crate::concentrator::timestamp::{calculate_timestamp, calculate_epochtime};
 
 use super::handler::gps;
 
@@ -126,59 +124,21 @@ pub fn uplink_to_proto(
         hal::CRC::CRCOk => chirpstack_api::gw::CrcStatus::CrcOk,
     });
 
-    let use_gps_time = USE_GPS_TIME.lock().unwrap();
-
-    if *use_gps_time
+    match calculate_timestamp(packet.count_us)
     {
-        match gps::cnt2time(packet.count_us) {
-            Ok(v) => {
-                let v = v.duration_since(UNIX_EPOCH).unwrap();
-    
-                rx_info.time = Some(prost_types::Timestamp {
-                    seconds: v.as_secs() as i64,
-                    nanos: v.subsec_nanos() as i32,
-                });
-            }
-            Err(err) => {
-                debug!(
-                    "Could not get GPS time, uplink_id: {}, error: {}",
-                    uplink_id, err
-                );
-            }
-        };
-        match gps::cnt2epoch(packet.count_us) {
-            Ok(v) => {
-                rx_info.time_since_gps_epoch = Some(prost_types::Duration {
-                    seconds: v.as_secs() as i64,
-                    nanos: v.subsec_nanos() as i32,
-                });
-            }
-            Err(err) => {
-                debug!(
-                    "Could not get GPS epoch, uplink_id: {}, error: {}",
-                    uplink_id, err
-                );
-            }
-        }
-    } else {
-        let time = START_TIME.lock().unwrap();
-        let mut count = LAST_COUNTER.lock().unwrap();
-        let time_since_epoch = (*time + Duration::from_micros(packet.count_us as u64))
-            .duration_since(UNIX_EPOCH).unwrap();
-        //let time_since_epoch = time.duration_since(UNIX_EPOCH).unwrap();
-        rx_info.time = Some(prost_types::Timestamp {
-            seconds: time_since_epoch.as_secs() as i64,
-            nanos: time_since_epoch.subsec_nanos() as i32,
-        });
-
-        rx_info.time_since_gps_epoch = Some(prost_types::Duration {
-            seconds: time_since_epoch.as_secs() as i64,
-            nanos: time_since_epoch.subsec_nanos() as i32,
-        });
-
-        *count = packet.count_us;
+        Ok(v) => rx_info.time = Some(v),
+        Err(err) => {
+            debug!("Timestamp calculation failed, uplink_id: {}, error: {}", uplink_id, err);
+        },
     }
-
+    match calculate_epochtime(packet.count_us) 
+    {
+        Ok(v) => rx_info.time_since_gps_epoch = Some(v),
+        Err(err) => {
+            debug!("Time since epoch calculation failed, uplink_id: {}, error: {}", uplink_id, err);
+        },
+    }
+    
     
     match gps::get_coords() {
         Some(v) => {
