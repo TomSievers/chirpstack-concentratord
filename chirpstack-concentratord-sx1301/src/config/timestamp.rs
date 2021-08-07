@@ -1,11 +1,17 @@
 use std::time::{Duration, SystemTime};
 use std::ops;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde::de::{self, Visitor};
+use std::fmt;
+use std::result::Result;
 
 pub enum TimeStampMethod {
     Systemtime,
     GPS,
+}
+
+impl std::default::Default for TimeStampMethod {
+    fn default() -> TimeStampMethod {TimeStampMethod::GPS}
 }
 
 impl<'de> Deserialize<'de> for TimeStampMethod {
@@ -22,18 +28,23 @@ impl<'de> Deserialize<'de> for TimeStampMethod {
                 formatter.write_str("\"gps\" or \"systemtime\"")
             }
 
-            fn visit_str<E>(self, value: &str) -> Result<value, E>
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
                 where
                     E: de::Error,
             {
                 match value {
                     "gps" => Ok(TimeStampMethod::GPS),
                     "systemtime" => Ok(TimeStampMethod::Systemtime),
-                    _ => Err(de::Error::unknown_field(value, FIELDS)),
+                    _ => {
+                        warn!("Invalid timestamp method, falling back to GPS method");
+                        return Ok(TimeStampMethod::GPS);
+                    },
                 }
             }
 
         }
+
+        return deserializer.deserialize_identifier(TimeStampMethodVisitor);
     }
 }
 
@@ -50,17 +61,24 @@ impl Serialize for TimeStampMethod {
     }
 }
 
+enum Operation {
+    Add,
+    Subtract
+}
+
 pub struct TimeZone {
-    enum Operation {
-        Add,
-        Subtract
-    }
     offset : Duration,
     operation : Operation,
 }
 
+impl std::default::Default for TimeZone {
+    fn default() -> TimeZone {TimeZone::ZERO}
+}
+
 impl ops::Add<TimeZone> for SystemTime {
-    fn add(&self, rhs : TimeZone) -> SystemTime {
+    type Output = SystemTime;
+
+    fn add(self, rhs : TimeZone) -> SystemTime {
         match rhs.operation {
             Operation::Add => self + rhs.offset,
             Operation::Subtract => self - rhs.offset,
@@ -69,7 +87,7 @@ impl ops::Add<TimeZone> for SystemTime {
 }
 
 impl TimeZone {
-    pub const ZERO : TimeZone = {offset : Duration::from_nanos(0), operation : Operation::Add};
+    pub const ZERO : TimeZone = TimeZone {offset : Duration::from_nanos(0), operation : Operation::Add};
 }
 
 impl Serialize for TimeZone {
@@ -80,32 +98,35 @@ impl Serialize for TimeZone {
         let hours : u64 = self.offset.as_secs()/60/60;
         let minutes : u64 = (self.offset.as_secs()-(hours*60*60))*60;
         let mut serial : String = String::with_capacity(5);
-        match self.operation {
-            Add => operation.push('+'),
-            Subtract => oepration.push('-'),
+        match &self.operation {
+            Operation::Add => serial.push('+'),
+            Operation::Subtract => serial.push('-'),
         }
+
+        let zero = "0".to_string();
 
         match hours.to_string().len()
         {
             0 => serial.push_str("00"),
-            1 => serial.push_str("0" + hours.to_string()),
-            2 => serial.push_str(hours.to_string()),
+            1 => serial.push_str((zero.clone() + &hours.to_string()).as_str()),
+            2 => serial.push_str(hours.to_string().as_str()),
+            _ => return serializer.serialize_str("+0000"),
         }
 
         match minutes.to_string().len()
         {
             0 => serial.push_str("00"),
-            1 => serial.push_str("0" + minutes.to_string()),
-            2 => serial.push_str(minutes.to_string()),
+            1 => serial.push_str((zero.clone() + &minutes.to_string()).as_str()),
+            2 => serial.push_str(minutes.to_string().as_str()),
+            _ => return serializer.serialize_str("+0000"),
         }
 
-        serializer.serialize_str(serial);
-        
+        return serializer.serialize_str(serial.as_str());
     }
 }
 
 impl<'de> Deserialize<'de> for TimeZone {
-    fn deserialize<D>(deserializer: D) -> Result<TimeStampMethod, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<TimeZone, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -118,41 +139,54 @@ impl<'de> Deserialize<'de> for TimeZone {
                 formatter.write_str("")
             }
 
-            fn visit_str<E>(self, value: &str) -> Result<value, E>
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
                 where
                     E: de::Error,
             {
-                let mut timezone = String::from(str);
+                let mut timezone = String::from(value);
                 if timezone.len() == 5
                 {
-                    let mut operator : Operation;
+                    let operator : Operation;
                     let operator_char = timezone.remove(0);
                     match operator_char {
                         '+' => operator = Operation::Add,
                         '-' => operator = Operation::Subtract,
-                        _ => return Err(String::from("Invalid first charachter of timezone")),
+                        _ => {
+                            warn!("Invalid operation before timezone values can only be + or - found: {}", operator_char);
+                            return Ok(TimeZone::ZERO);
+                        },
                     }
         
                     let mut seconds : u64 = 0;
         
                     match timezone.split_off(1).parse::<u64>()
                     {
-                        Ok(v) => seconds += v.unwrap()*60,
-                        Err(e) => return Err(String::from("String minutes converstion to integer failed"))
+                        Ok(v) => seconds += v*60,
+                        Err(_e) => {
+                            warn!("Parsing minutes in timezone failed, are all the values numbers?");
+                            return Ok(TimeZone::ZERO);
+                        },
                     }
         
                     match timezone.parse::<u64>()
                     {
-                        Ok(v) => seconds += v.unwarp()*60*60,
-                        Err(e) => return Err(String::from("String hours converstion to integer failed")),
+                        Ok(v) => seconds += v*60*60,
+                        Err(_e) => {
+                            warn!("Parsing hours in timezone failed, are all the values numbers?");
+                            return Ok(TimeZone::ZERO);
+                        },
                     }
         
-                    Ok(TimeZone {offset: Duration::from_secs(seconds), operation : operator});
+                    return Ok(TimeZone {offset: Duration::from_secs(seconds), operation : operator});
                 }
-                return Err(String::from("Timezone string invalid length"));
+                warn!("Invalid timezone string length, expected 5 got {}", timezone.len());
+                return Ok(TimeZone::ZERO);
             }
 
         }
+        const FIELDS: &'static [&'static str] = &["offset", "operation"];
+
+        return deserializer.deserialize_struct("TimeZone", FIELDS, TimeZoneVisitor);
     }
 }
 

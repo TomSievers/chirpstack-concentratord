@@ -3,8 +3,11 @@ use std::fs;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+pub mod timestamp;
 pub mod helpers;
 pub mod vendor;
+
+use timestamp::{TimeStampMethod, TimeZone};
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
@@ -59,10 +62,10 @@ pub struct Gateway {
     #[serde(default)]
     pub reset_pin: u32,
     pub gateway_id: String,
-    #[serde(default = "default_timestamp_method")]
-    pub timestamp_method: String,
-    #[serde(default = "default_timezone")]
-    pub timezone: String,
+    #[serde(default)]
+    pub timestamp_method: TimeStampMethod,
+    #[serde(default)]
+    pub timezone: TimeZone,
     pub concentrator: Concentrator,
     #[serde(default)]
     pub beacon: Beacon,
@@ -100,14 +103,6 @@ pub struct Configuration {
     pub gateway: Gateway,
 }
 
-fn default_timestamp_method() -> String {
-    "systemtime".to_string()
-}
-
-fn default_timezone() -> String {
-    "+0000".to_string()
-}
-
 fn example_configuration() -> Configuration {
     Configuration {
         concentratord: Concentratord {
@@ -123,8 +118,8 @@ fn example_configuration() -> Configuration {
             lorawan_public: true,
             model: "rak_2245_eu868".to_string(),
             gateway_id: "0000000000000000".to_string(),
-            timestamp_method: "systemtime".to_string(),
-            timezone: "+0000".to_string(),
+            timestamp_method: TimeStampMethod::GPS,
+            timezone: TimeZone::ZERO,
             concentrator: Concentrator {
                 multi_sf_channels: [
                     868100000, 868300000, 868500000, 867100000, 867300000, 867500000, 867700000,
