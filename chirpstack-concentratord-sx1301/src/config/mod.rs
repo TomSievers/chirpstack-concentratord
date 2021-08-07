@@ -119,7 +119,7 @@ fn example_configuration() -> Configuration {
             model: "rak_2245_eu868".to_string(),
             gateway_id: "0000000000000000".to_string(),
             timestamp_method: TimeStampMethod::GPS,
-            timezone: TimeZone::ZERO,
+            timezone: TimeZone::UTC,
             concentrator: Concentrator {
                 multi_sf_channels: [
                     868100000, 868300000, 868500000, 867100000, 867300000, 867500000, 867700000,

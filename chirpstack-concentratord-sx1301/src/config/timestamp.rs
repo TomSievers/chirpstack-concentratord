@@ -5,7 +5,7 @@ use serde::de::{self, Visitor};
 use std::fmt;
 use std::result::Result;
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum TimeStampMethod {
     Systemtime,
     GPS,
@@ -62,20 +62,20 @@ impl Serialize for TimeStampMethod {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 enum Operation {
     Add,
     Subtract
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct TimeZone {
     offset : Duration,
     operation : Operation,
 }
 
 impl std::default::Default for TimeZone {
-    fn default() -> TimeZone {TimeZone::ZERO}
+    fn default() -> TimeZone {TimeZone::UTC}
 }
 
 impl ops::Add<TimeZone> for SystemTime {
@@ -90,7 +90,7 @@ impl ops::Add<TimeZone> for SystemTime {
 }
 
 impl TimeZone {
-    pub const ZERO : TimeZone = TimeZone {offset : Duration::from_nanos(0), operation : Operation::Add};
+    pub const UTC : TimeZone = TimeZone {offset : Duration::from_nanos(0), operation : Operation::Add};
 }
 
 impl Serialize for TimeZone {
@@ -113,7 +113,10 @@ impl Serialize for TimeZone {
             0 => serial.push_str("00"),
             1 => serial.push_str((zero.clone() + &hours.to_string()).as_str()),
             2 => serial.push_str(hours.to_string().as_str()),
-            _ => return serializer.serialize_str("+0000"),
+            _ => {
+                warn!("Hours serialization failed defaulting to +0000");
+                return serializer.serialize_str("+0000");
+            },
         }
 
         match minutes.to_string().len()
@@ -121,7 +124,10 @@ impl Serialize for TimeZone {
             0 => serial.push_str("00"),
             1 => serial.push_str((zero.clone() + &minutes.to_string()).as_str()),
             2 => serial.push_str(minutes.to_string().as_str()),
-            _ => return serializer.serialize_str("+0000"),
+            _ => {
+                warn!("Minutes serialization failed defaulting to +0000");
+                return serializer.serialize_str("+0000");
+            },
         }
 
         return serializer.serialize_str(serial.as_str());
@@ -156,7 +162,7 @@ impl<'de> Deserialize<'de> for TimeZone {
                         '-' => operator = Operation::Subtract,
                         _ => {
                             warn!("Invalid operation before timezone values can only be + or - found: {}", operator_char);
-                            return Ok(TimeZone::ZERO);
+                            return Ok(TimeZone::UTC);
                         },
                     }
         
@@ -167,7 +173,7 @@ impl<'de> Deserialize<'de> for TimeZone {
                         Ok(v) => seconds += v*60,
                         Err(_e) => {
                             warn!("Parsing minutes in timezone failed, are all the values numbers?");
-                            return Ok(TimeZone::ZERO);
+                            return Ok(TimeZone::UTC);
                         },
                     }
         
@@ -176,14 +182,14 @@ impl<'de> Deserialize<'de> for TimeZone {
                         Ok(v) => seconds += v*60*60,
                         Err(_e) => {
                             warn!("Parsing hours in timezone failed, are all the values numbers?");
-                            return Ok(TimeZone::ZERO);
+                            return Ok(TimeZone::UTC);
                         },
                     }
         
                     return Ok(TimeZone {offset: Duration::from_secs(seconds), operation : operator});
                 }
                 warn!("Invalid timezone string length, expected 5 got {}", timezone.len());
-                return Ok(TimeZone::ZERO);
+                return Ok(TimeZone::UTC);
             }
 
         }

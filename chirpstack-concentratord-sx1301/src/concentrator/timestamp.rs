@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::result::Result;
 
 lazy_static! {
-    static ref TIMEZONE: Mutex<TimeZone> = Mutex::new(TimeZone::ZERO);
+    static ref TIMEZONE: Mutex<TimeZone> = Mutex::new(TimeZone::UTC);
     static ref METHOD: Mutex<TimeStampMethod> = Mutex::new(TimeStampMethod::GPS);
     static ref START_TIME: Mutex<SystemTime> = Mutex::new(SystemTime::UNIX_EPOCH);
     static ref PREV_COUNTER: Mutex<u32> = Mutex::new(0);

@@ -51,7 +51,7 @@ fn main() {
         cmd::configfile::run(&config);
         process::exit(0);
     }
-
+    
     if config.concentratord.log_to_syslog {
         let formatter = Formatter3164 {
             facility: Facility::LOG_USER,
