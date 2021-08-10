@@ -15,11 +15,28 @@ lazy_static! {
 pub fn start(config : &Configuration) {
     *METHOD.lock().unwrap() = config.gateway.timestamp_method;
     match config.gateway.timestamp_method {
-        TimeStampMethod::GPS => (),
-        TimeStampMethod::Systemtime => { *START_TIME.lock().unwrap() = SystemTime::now() },
+        TimeStampMethod::GPS => info!("Timestamps: GPS"),
+        TimeStampMethod::Systemtime => { 
+            info!("Timestamps: Systemtime");
+            *START_TIME.lock().unwrap() = SystemTime::now();
+        },
     }
 
     *TIMEZONE.lock().unwrap() = config.gateway.timezone;
+}
+
+fn update_counter_internal(current_count_us : u32)
+{
+    debug!("Counter update");
+    let mut prev_count = PREV_COUNTER.lock().unwrap();
+    if current_count_us < *prev_count
+    {
+        let duration = Duration::from_micros(u32::MAX as u64);
+        *START_TIME.lock().unwrap() += duration;
+        debug!("Timestamp counter wrap around");
+    }
+
+    *prev_count = current_count_us;
 }
 
 pub fn update_counter(current_count_us : u32)
@@ -27,22 +44,17 @@ pub fn update_counter(current_count_us : u32)
     match *METHOD.lock().unwrap()
     {
         TimeStampMethod::Systemtime => {
-            let mut prev_count = PREV_COUNTER.lock().unwrap();
-            if current_count_us < *prev_count
-            {
-                let duration = Duration::from_micros(u32::MAX as u64);
-                *START_TIME.lock().unwrap() += duration;
-                info!("Timestamp counter wrap around");
-            }
-
-            *prev_count = current_count_us;
+            update_counter_internal(current_count_us);
         },
         _ => (),
     }
+    
 }
 
 pub fn calculate_timestamp(current_count_us : u32) -> Result<prost_types::Timestamp, String> {
-    match *METHOD.lock().unwrap()
+    debug!("Timestamp calculation");
+    let method = *METHOD.lock().unwrap();
+    match method
     {
         TimeStampMethod::GPS => {
             match gps::cnt2time(current_count_us) {
@@ -60,13 +72,19 @@ pub fn calculate_timestamp(current_count_us : u32) -> Result<prost_types::Timest
             };
         },
         TimeStampMethod::Systemtime => {
+
             let time = START_TIME.lock().unwrap();
             let time_since_epoch = 
-                (*time + Duration::from_micros(current_count_us as u64) + *TIMEZONE.lock().unwrap())
+                (*time + Duration::from_micros(current_count_us as u64))
                 .duration_since(UNIX_EPOCH).unwrap();
 
-            update_counter(current_count_us);
+            let data = prost_types::Timestamp {
+                seconds: time_since_epoch.as_secs() as i64,
+                nanos: time_since_epoch.subsec_nanos() as i32,
+            };
 
+            debug!("Timestamp: {:?}", data);
+            
             return Ok(prost_types::Timestamp {
                 seconds: time_since_epoch.as_secs() as i64,
                 nanos: time_since_epoch.subsec_nanos() as i32,
@@ -76,7 +94,9 @@ pub fn calculate_timestamp(current_count_us : u32) -> Result<prost_types::Timest
 }
 
 pub fn calculate_epochtime(current_count_us : u32) -> Result<prost_types::Duration, String> {
-    match *METHOD.lock().unwrap()
+    debug!("Epochtime calculation");
+    let method = *METHOD.lock().unwrap();
+    match method
     {
         TimeStampMethod::GPS => {
             match gps::cnt2epoch(current_count_us) {
@@ -92,12 +112,11 @@ pub fn calculate_epochtime(current_count_us : u32) -> Result<prost_types::Durati
             }
         },
         TimeStampMethod::Systemtime => {
+
             let time = START_TIME.lock().unwrap();
             let time_since_epoch = 
-                (*time + Duration::from_micros(current_count_us as u64) + *TIMEZONE.lock().unwrap())
+                (*time + Duration::from_micros(current_count_us as u64))
                 .duration_since(UNIX_EPOCH).unwrap();
-
-            update_counter(current_count_us);
 
             return Ok(prost_types::Duration {
                 seconds: time_since_epoch.as_secs() as i64,
